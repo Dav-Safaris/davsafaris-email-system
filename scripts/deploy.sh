@@ -71,30 +71,58 @@ fi
 
 # Handle existing application directory
 if [ -d "$APP_DIR" ]; then
-    TIMESTAMP=$(date +%Y%m%d%H%M%S)
-    BACKUP_DIR="${APP_DIR}_backup_${TIMESTAMP}"
-    echo "Backing up existing $APP_DIR to $BACKUP_DIR..."
-    mv "$APP_DIR" "$BACKUP_DIR"
+    echo "Destination directory already exists."
+    echo -e "\033[1;33mChoose an option:\033[0m"
+    echo "1) Back up existing directory and create fresh installation"
+    echo "2) Update existing installation (git pull)"
+    echo "3) Exit"
+    read -p "Enter your choice (1-3): " choice
+    
+    case $choice in
+        1)
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            BACKUP_DIR="${APP_DIR}_backup_${TIMESTAMP}"
+            echo -e "\033[1;34mBacking up existing $APP_DIR to $BACKUP_DIR...\033[0m"
+            mv "$APP_DIR" "$BACKUP_DIR"
+            mkdir -p $APP_DIR/logs
+            echo -e "\033[1;34mCloning repository...\033[0m"
+            git clone $GIT_REPO $APP_DIR
+            ;;
+        2)
+            echo -e "\033[1;34mUpdating existing installation...\033[0m"
+            cd $APP_DIR
+            git stash
+            git pull origin main || git pull origin master
+            ;;
+        3)
+            echo -e "\033[1;31mExiting without making changes.\033[0m"
+            exit 0
+            ;;
+        *)
+            echo -e "\033[1;31mInvalid choice. Exiting.\033[0m"
+            exit 1
+            ;;
+    esac
+else
+    # Create app directory and logs
+    mkdir -p $APP_DIR/logs
+    
+    # Clone repository
+    echo -e "\033[1;34mCloning repository...\033[0m"
+    git clone $GIT_REPO $APP_DIR
 fi
-
-# Create app directory and logs
-mkdir -p $APP_DIR/logs
-
-# Clone repository
-echo "Cloning repository..."
-git clone $GIT_REPO $APP_DIR
 
 # Set proper permissions
 chown -R $APP_USER:$APP_USER $APP_DIR
 
 # Install dependencies
-echo "Installing dependencies..."
+echo -e "\033[1;34mInstalling dependencies...\033[0m"
 cd $APP_DIR
 npm install --production
 
 # Create .env file if missing
 if [ ! -f "$APP_DIR/.env" ]; then
-    echo "Creating .env file..."
+    echo -e "\033[1;34mCreating .env file...\033[0m"
     SERVER_IP=$(hostname -I | awk '{print $1}')
     cat > $APP_DIR/.env << EOL
 NODE_ENV=production
@@ -134,15 +162,15 @@ TRACK_CLICKS=true
 
 LOG_DIR=logs
 EOL
-    echo "Created .env file. Please update it with your actual configuration."
+    echo -e "\033[1;32mCreated .env file. Please update it with your actual configuration.\033[0m"
 fi
 
 # Run database setup
-echo "Setting up database..."
+echo -e "\033[1;34mSetting up database...\033[0m"
 node setup.js
 
 # Configure Nginx
-echo "Configuring Nginx..."
+echo -e "\033[1;34mConfiguring Nginx...\033[0m"
 cat > /etc/nginx/sites-available/email-system << EOL
 server {
     listen 80;
@@ -182,7 +210,7 @@ nginx -t
 systemctl reload nginx
 
 # Configure PM2
-echo "Configuring PM2..."
+echo -e "\033[1;34mConfiguring PM2...\033[0m"
 cat > $APP_DIR/ecosystem.config.js << EOL
 module.exports = {
   apps: [
@@ -208,15 +236,15 @@ pm2 save
 pm2 startup systemd
 systemctl enable pm2-$USER
 
-echo "==================================================="
-echo "Email tracking system has been deployed successfully!"
+echo -e "\033[1;32m===================================================\033[0m"
+echo -e "\033[1;32mEmail tracking system has been deployed successfully!\033[0m"
 echo ""
-echo "API Endpoint: http://$SERVER_IP/api/email"
-echo "API Key: $(grep API_KEY $APP_DIR/.env | cut -d= -f2)"
-echo "Admin API Key: $(grep ADMIN_API_KEY $APP_DIR/.env | cut -d= -f2)"
+echo -e "\033[1;36mAPI Endpoint: http://$SERVER_IP/api/email\033[0m"
+echo -e "\033[1;36mAPI Key: $(grep API_KEY $APP_DIR/.env | cut -d= -f2)\033[0m"
+echo -e "\033[1;36mAdmin API Key: $(grep ADMIN_API_KEY $APP_DIR/.env | cut -d= -f2)\033[0m"
 echo ""
-echo "Important next steps:"
-echo "1. Update your .env file with proper SMTP credentials"
-echo "2. Consider setting up a domain name with SSL"
-echo "3. Update your firewall rules"
-echo "==================================================="
+echo -e "\033[1;33mImportant next steps:\033[0m"
+echo -e "\033[1;33m1. Update your .env file with proper SMTP credentials\033[0m"
+echo -e "\033[1;33m2. Consider setting up a domain name with SSL\033[0m"
+echo -e "\033[1;33m3. Update your firewall rules\033[0m"
+echo -e "\033[1;32m===================================================\033[0m"
