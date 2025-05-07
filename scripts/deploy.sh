@@ -12,9 +12,9 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # Configuration
-APP_DIR="/var/www/email-system"
-GIT_REPO="https://github.com/yourusername/email-tracking-system.git"
-APP_USER="www-data"
+APP_DIR="/var/www/davsafaris-email-system"
+GIT_REPO="https://github.com/Dav-Safaris/davsafaris-email-system.git"
+APP_USER="ssemugenyi"
 NODE_VERSION="18"
 
 # Update system packages
