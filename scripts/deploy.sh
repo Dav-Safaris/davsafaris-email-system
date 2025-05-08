@@ -243,11 +243,30 @@ module.exports = {
 }
 EOL
 
+# Make sure PM2 is owned by the right user
+chown $APP_USER:$APP_USER -R /home/$APP_USER/.pm2
+
+# Start the app with PM2
 cd $APP_DIR
-pm2 start ecosystem.config.js
-pm2 save
-pm2 startup systemd
-systemctl enable pm2-$APP_USER
+su - $APP_USER -c "cd $APP_DIR && pm2 start ecosystem.config.js"
+su - $APP_USER -c "pm2 save"
+
+# FIX: Generate PM2 startup script and enable it properly
+echo -e "\033[1;34mConfiguring PM2 startup...\033[0m"
+PM2_STARTUP=$(su - $APP_USER -c "pm2 startup systemd -u $APP_USER --hp /home/$APP_USER" | grep "sudo" | sed -e "s/\s*\$.*//")
+
+if [ -n "$PM2_STARTUP" ]; then
+    echo -e "\033[1;34mRunning PM2 startup command: $PM2_STARTUP\033[0m"
+    eval $PM2_STARTUP
+    
+    # Ensure the service is enabled
+    systemctl daemon-reload
+    systemctl enable pm2-$APP_USER
+    systemctl status pm2-$APP_USER
+else
+    echo -e "\033[1;33mWarning: Could not generate PM2 startup command. You may need to configure PM2 startup manually.\033[0m"
+    echo -e "\033[1;33mTry running: 'sudo -u $APP_USER pm2 startup systemd -u $APP_USER --hp /home/$APP_USER'\033[0m"
+fi
 
 # Set up logrotate for application logs
 cat > /etc/logrotate.d/email-system << EOL
@@ -261,7 +280,7 @@ $APP_DIR/logs/*.log {
     create 0640 $APP_USER $APP_USER
     sharedscripts
     postrotate
-        pm2 reload email-api
+        su - $APP_USER -c "pm2 reload email-api"
     endscript
 }
 EOL
