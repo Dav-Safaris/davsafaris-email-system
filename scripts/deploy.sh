@@ -12,8 +12,8 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # Configuration - Update these variables as needed
-APP_DIR="/var/www/email-system"
-GIT_REPO="https://github.com/yourusername/email-tracking-system.git"
+APP_DIR="/var/www/davsafaris-email-system"
+GIT_REPO="https://github.com/Dav-Safaris/davsafaris-email-system.git"
 APP_USER="www-data"  # Default user for web applications
 NODE_VERSION="18"
 
