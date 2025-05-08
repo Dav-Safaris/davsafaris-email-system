@@ -184,10 +184,15 @@ node setup.js || echo -e "\033[1;33mWarning: Database setup may have failed. Che
 
 # Configure Nginx
 echo -e "\033[1;34mConfiguring Nginx...\033[0m"
+
+# Get server IP
+SERVER_IP=$(hostname -I | awk '{print $1}')
+
+# Create Nginx configuration file with proper server_name
 cat > /etc/nginx/sites-available/email-system << EOL
 server {
     listen 80;
-    server_name $SERVER_IP;
+    server_name ${SERVER_IP};
     
     location / {
         proxy_pass http://localhost:3000;
@@ -217,9 +222,60 @@ server {
 }
 EOL
 
+# Create a symbolic link to enable the site
 ln -sf /etc/nginx/sites-available/email-system /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
-nginx -t
+
+# Remove default site if it exists
+if [ -f /etc/nginx/sites-enabled/default ]; then
+    rm -f /etc/nginx/sites-enabled/default
+fi
+
+# Test the Nginx configuration
+if ! nginx -t; then
+    echo -e "\033[1;31mNginx configuration test failed. Trying alternative configuration...\033[0m"
+    
+    # Alternative configuration with default server_name
+    cat > /etc/nginx/sites-available/email-system << EOL
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    location /api/email/tracking/ {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+EOL
+    
+    # Test the Nginx configuration again
+    if ! nginx -t; then
+        echo -e "\033[1;31mNginx configuration still failed. Please check Nginx configuration manually.\033[0m"
+        exit 1
+    fi
+fi
+
+# Reload Nginx if tests passed
 systemctl reload nginx
 
 # Configure PM2
@@ -244,7 +300,9 @@ module.exports = {
 EOL
 
 # Make sure PM2 is owned by the right user
-chown $APP_USER:$APP_USER -R /home/$APP_USER/.pm2
+if [ -d "/home/$APP_USER/.pm2" ]; then
+    chown $APP_USER:$APP_USER -R /home/$APP_USER/.pm2
+fi
 
 # Start the app with PM2
 cd $APP_DIR
@@ -262,7 +320,7 @@ if [ -n "$PM2_STARTUP" ]; then
     # Ensure the service is enabled
     systemctl daemon-reload
     systemctl enable pm2-$APP_USER
-    systemctl status pm2-$APP_USER
+    systemctl is-enabled pm2-$APP_USER || echo -e "\033[1;33mWarning: Failed to enable pm2-$APP_USER service\033[0m"
 else
     echo -e "\033[1;33mWarning: Could not generate PM2 startup command. You may need to configure PM2 startup manually.\033[0m"
     echo -e "\033[1;33mTry running: 'sudo -u $APP_USER pm2 startup systemd -u $APP_USER --hp /home/$APP_USER'\033[0m"
@@ -289,10 +347,10 @@ echo -e "\033[1;32m===================================================\033[0m"
 echo -e "\033[1;32mEmail tracking system has been deployed successfully!\033[0m"
 echo ""
 echo -e "\033[1;36mAPI Endpoint: http://$SERVER_IP/api/email\033[0m"
-echo -e "\033[1;36mAPI Key: $(grep API_KEY $APP_DIR/.env | cut -d= -f2)\033[0m"
-echo -e "\033[1;36mAdmin API Key: $(grep ADMIN_API_KEY $APP_DIR/.env | cut -d= -f2)\033[0m"
+echo -e "\033[1;36mAPI Key: $(grep API_KEY $APP_DIR/.env | cut -d= -f2 || echo 'Not found')\033[0m"
+echo -e "\033[1;36mAdmin API Key: $(grep ADMIN_API_KEY $APP_DIR/.env | cut -d= -f2 || echo 'Not found')\033[0m"
 echo ""
-if [ "$TEMP_PASSWORD" != "" ]; then
+if [ -n "$TEMP_PASSWORD" ]; then
     echo -e "\033[1;33mUser $APP_USER was created with password: $TEMP_PASSWORD\033[0m"
     echo -e "\033[1;33mPlease change this password immediately using: sudo passwd $APP_USER\033[0m"
     echo ""
