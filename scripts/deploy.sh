@@ -14,8 +14,27 @@ fi
 # Configuration
 APP_DIR="/var/www/davsafaris-email-system"
 GIT_REPO="https://github.com/Dav-Safaris/davsafaris-email-system.git"
-APP_USER="root"
+APP_USER="ssemugenyi"
 NODE_VERSION="18"
+
+# Check if user exists and create if not available
+if ! id "$APP_USER" &>/dev/null; then
+    echo -e "\033[1;33mUser $APP_USER does not exist. Creating user...\033[0m"
+    useradd -m -s /bin/bash "$APP_USER"
+    # Set a random password for the user
+    TEMP_PASSWORD=$(openssl rand -base64 12)
+    echo "$APP_USER:$TEMP_PASSWORD" | chpasswd
+    echo -e "\033[1;32mUser $APP_USER created with password: $TEMP_PASSWORD\033[0m"
+    echo -e "\033[1;33mNote: You should change this password immediately after installation.\033[0m"
+    
+    # Add user to sudo group if needed
+    # usermod -aG sudo "$APP_USER"
+    
+    # Allow the user to restart the service without password
+    echo "$APP_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart email-api" >> /etc/sudoers.d/email-api
+    echo "$APP_USER ALL=(ALL) NOPASSWD: /usr/local/bin/pm2 restart email-api" >> /etc/sudoers.d/email-api
+    chmod 0440 /etc/sudoers.d/email-api
+fi
 
 # Update system packages
 echo -e "\033[1;34mUpdating system packages...\033[0m"
@@ -86,7 +105,7 @@ if [ -d "$APP_DIR" ]; then
     # Clone repository into the now-empty directory
     echo -e "\033[1;34mCloning repository into existing directory...\033[0m"
     git clone $GIT_REPO $APP_DIR.tmp
-    mv $APP_DIR.tmp/* $APP_DIR/
+    mv $APP_DIR.tmp/* $APP_DIR/ 2>/dev/null || true
     mv $APP_DIR.tmp/.* $APP_DIR/ 2>/dev/null || true  # Move hidden files too
     rm -rf $APP_DIR.tmp
 else
@@ -103,6 +122,7 @@ mkdir -p $APP_DIR/logs
 
 # Set proper permissions
 chown -R $APP_USER:$APP_USER $APP_DIR
+chmod -R 755 $APP_DIR
 
 # Install dependencies
 echo -e "\033[1;34mInstalling dependencies...\033[0m"
@@ -153,6 +173,10 @@ LOG_DIR=logs
 EOL
     echo -e "\033[1;32mCreated .env file. Please update it with your actual configuration.\033[0m"
 fi
+
+# Set proper permissions for .env file
+chown $APP_USER:$APP_USER $APP_DIR/.env
+chmod 600 $APP_DIR/.env
 
 # Run database setup
 echo -e "\033[1;34mSetting up database...\033[0m"
@@ -223,7 +247,24 @@ cd $APP_DIR
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup systemd
-systemctl enable pm2-$USER
+systemctl enable pm2-$APP_USER
+
+# Set up logrotate for application logs
+cat > /etc/logrotate.d/email-system << EOL
+$APP_DIR/logs/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 $APP_USER $APP_USER
+    sharedscripts
+    postrotate
+        pm2 reload email-api
+    endscript
+}
+EOL
 
 echo -e "\033[1;32m===================================================\033[0m"
 echo -e "\033[1;32mEmail tracking system has been deployed successfully!\033[0m"
@@ -232,6 +273,11 @@ echo -e "\033[1;36mAPI Endpoint: http://$SERVER_IP/api/email\033[0m"
 echo -e "\033[1;36mAPI Key: $(grep API_KEY $APP_DIR/.env | cut -d= -f2)\033[0m"
 echo -e "\033[1;36mAdmin API Key: $(grep ADMIN_API_KEY $APP_DIR/.env | cut -d= -f2)\033[0m"
 echo ""
+if [ "$TEMP_PASSWORD" != "" ]; then
+    echo -e "\033[1;33mUser $APP_USER was created with password: $TEMP_PASSWORD\033[0m"
+    echo -e "\033[1;33mPlease change this password immediately using: sudo passwd $APP_USER\033[0m"
+    echo ""
+fi
 echo -e "\033[1;33mImportant next steps:\033[0m"
 echo -e "\033[1;33m1. Update your .env file with proper SMTP credentials\033[0m"
 echo -e "\033[1;33m2. Consider setting up a domain name with SSL\033[0m"
