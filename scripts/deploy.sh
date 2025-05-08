@@ -182,64 +182,21 @@ chmod 600 $APP_DIR/.env
 echo -e "\033[1;34mSetting up database...\033[0m"
 node setup.js || echo -e "\033[1;33mWarning: Database setup may have failed. Check logs for details.\033[0m"
 
-# Configure Nginx
+# Configure Nginx - FIXED VERSION
 echo -e "\033[1;34mConfiguring Nginx...\033[0m"
 
-# Get server IP
-SERVER_IP=$(hostname -I | awk '{print $1}')
+# Get server IP - Get a clean IP with no spaces or extra characters
+SERVER_IP=$(hostname -I | awk '{print $1}' | tr -d '[:space:]')
+echo -e "\033[1;34mUsing server IP: $SERVER_IP for Nginx configuration\033[0m"
 
-# Create Nginx configuration file with proper server_name
+# Create Nginx configuration file
 cat > /etc/nginx/sites-available/email-system << EOL
-server {
-    listen 80;
-    server_name ${SERVER_IP};
-    
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    location /api/email/tracking/ {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-}
-EOL
-
-# Create a symbolic link to enable the site
-ln -sf /etc/nginx/sites-available/email-system /etc/nginx/sites-enabled/
-
-# Remove default site if it exists
-if [ -f /etc/nginx/sites-enabled/default ]; then
-    rm -f /etc/nginx/sites-enabled/default
-fi
-
-# Test the Nginx configuration
-if ! nginx -t; then
-    echo -e "\033[1;31mNginx configuration test failed. Trying alternative configuration...\033[0m"
-    
-    # Alternative configuration with default server_name
-    cat > /etc/nginx/sites-available/email-system << EOL
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
     
+    # Using default_server instead of server_name to avoid potential issues
+    
     location / {
         proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
@@ -267,15 +224,32 @@ server {
     }
 }
 EOL
+
+ln -sf /etc/nginx/sites-available/email-system /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# Test Nginx configuration
+echo -e "\033[1;34mTesting Nginx configuration...\033[0m"
+if ! nginx -t; then
+    echo -e "\033[1;31mNginx configuration test failed. Trying alternative configuration...\033[0m"
     
-    # Test the Nginx configuration again
-    if ! nginx -t; then
-        echo -e "\033[1;31mNginx configuration still failed. Please check Nginx configuration manually.\033[0m"
-        exit 1
-    fi
+    # Even simpler configuration as a last resort
+    cat > /etc/nginx/sites-available/email-system << EOL
+server {
+    listen 80;
+    
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+    }
+}
+EOL
+    
+    nginx -t && echo -e "\033[1;32mAlternative Nginx configuration is valid.\033[0m" || echo -e "\033[1;31mNginx configuration still failed. Please check manually.\033[0m"
 fi
 
-# Reload Nginx if tests passed
 systemctl reload nginx
 
 # Configure PM2
@@ -299,7 +273,7 @@ module.exports = {
 }
 EOL
 
-# Make sure PM2 is owned by the right user
+# Make sure PM2 is owned by the right user if it exists
 if [ -d "/home/$APP_USER/.pm2" ]; then
     chown $APP_USER:$APP_USER -R /home/$APP_USER/.pm2
 fi
@@ -319,8 +293,7 @@ if [ -n "$PM2_STARTUP" ]; then
     
     # Ensure the service is enabled
     systemctl daemon-reload
-    systemctl enable pm2-$APP_USER
-    systemctl is-enabled pm2-$APP_USER || echo -e "\033[1;33mWarning: Failed to enable pm2-$APP_USER service\033[0m"
+    systemctl enable pm2-$APP_USER || echo -e "\033[1;33mWarning: Failed to enable pm2-$APP_USER service\033[0m"
 else
     echo -e "\033[1;33mWarning: Could not generate PM2 startup command. You may need to configure PM2 startup manually.\033[0m"
     echo -e "\033[1;33mTry running: 'sudo -u $APP_USER pm2 startup systemd -u $APP_USER --hp /home/$APP_USER'\033[0m"
