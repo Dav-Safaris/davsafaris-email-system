@@ -14,7 +14,7 @@ fi
 # Configuration
 APP_DIR="/var/www/davsafaris-email-system"
 GIT_REPO="https://github.com/Dav-Safaris/davsafaris-email-system.git"
-APP_USER="ssemugenyi"
+APP_USER="root"
 NODE_VERSION="18"
 
 # Update system packages
