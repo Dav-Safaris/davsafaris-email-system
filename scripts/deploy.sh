@@ -3,11 +3,11 @@
 # Exit script on any error
 set -e
 
-echo "=== Email Tracking System Deployment Script ==="
+echo -e "\033[1;32m=== Email Tracking System Deployment Script ===\033[0m"
 
 # Check if running as root
 if [ "$(id -u)" != "0" ]; then
-   echo "This script must be run as root" 1>&2
+   echo -e "\033[1;31mThis script must be run as root\033[0m" 1>&2
    exit 1
 fi
 
@@ -18,16 +18,16 @@ APP_USER="ssemugenyi"
 NODE_VERSION="18"
 
 # Update system packages
-echo "Updating system packages..."
+echo -e "\033[1;34mUpdating system packages...\033[0m"
 apt update && apt upgrade -y
 
 # Install essential tools
-echo "Installing essential tools..."
+echo -e "\033[1;34mInstalling essential tools...\033[0m"
 apt install -y curl wget git build-essential
 
 # Install Node.js if not installed
 if ! command -v node &> /dev/null; then
-    echo "Installing Node.js..."
+    echo -e "\033[1;34mInstalling Node.js...\033[0m"
     curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
     apt install -y nodejs
     node -v
@@ -36,13 +36,13 @@ fi
 
 # Install PM2 globally if not installed
 if ! command -v pm2 &> /dev/null; then
-    echo "Installing PM2..."
+    echo -e "\033[1;34mInstalling PM2...\033[0m"
     npm install -g pm2
 fi
 
 # Install PostgreSQL if not installed
 if ! command -v psql &> /dev/null; then
-    echo "Installing PostgreSQL..."
+    echo -e "\033[1;34mInstalling PostgreSQL...\033[0m"
     apt install -y postgresql postgresql-contrib
     systemctl start postgresql
     systemctl enable postgresql
@@ -53,7 +53,7 @@ fi
 
 # Install Redis if not installed
 if ! command -v redis-server &> /dev/null; then
-    echo "Installing Redis..."
+    echo -e "\033[1;34mInstalling Redis...\033[0m"
     apt install -y redis-server
     sed -i 's/supervised no/supervised systemd/' /etc/redis/redis.conf
     sed -i 's/# requirepass foobared/requirepass your_redis_password/' /etc/redis/redis.conf
@@ -63,54 +63,43 @@ fi
 
 # Install Nginx if not installed
 if ! command -v nginx &> /dev/null; then
-    echo "Installing Nginx..."
+    echo -e "\033[1;34mInstalling Nginx...\033[0m"
     apt install -y nginx
     systemctl enable nginx
     systemctl start nginx
 fi
 
-# Handle existing application directory
+# DIRECT FIX FOR THE GIT CLONE ISSUE - Force removal and fresh clone
 if [ -d "$APP_DIR" ]; then
-    echo "Destination directory already exists."
-    echo -e "\033[1;33mChoose an option:\033[0m"
-    echo "1) Back up existing directory and create fresh installation"
-    echo "2) Update existing installation (git pull)"
-    echo "3) Exit"
-    read -p "Enter your choice (1-3): " choice
+    echo -e "\033[1;33mDestination directory already exists.\033[0m"
     
-    case $choice in
-        1)
-            TIMESTAMP=$(date +%Y%m%d%H%M%S)
-            BACKUP_DIR="${APP_DIR}_backup_${TIMESTAMP}"
-            echo -e "\033[1;34mBacking up existing $APP_DIR to $BACKUP_DIR...\033[0m"
-            mv "$APP_DIR" "$BACKUP_DIR"
-            mkdir -p $APP_DIR/logs
-            echo -e "\033[1;34mCloning repository...\033[0m"
-            git clone $GIT_REPO $APP_DIR
-            ;;
-        2)
-            echo -e "\033[1;34mUpdating existing installation...\033[0m"
-            cd $APP_DIR
-            git stash
-            git pull origin main || git pull origin master
-            ;;
-        3)
-            echo -e "\033[1;31mExiting without making changes.\033[0m"
-            exit 0
-            ;;
-        *)
-            echo -e "\033[1;31mInvalid choice. Exiting.\033[0m"
-            exit 1
-            ;;
-    esac
+    # Create backup of existing directory
+    TIMESTAMP=$(date +%Y%m%d%H%M%S)
+    BACKUP_DIR="${APP_DIR}_backup_${TIMESTAMP}"
+    echo -e "\033[1;34mBacking up existing $APP_DIR to $BACKUP_DIR...\033[0m"
+    cp -r "$APP_DIR" "$BACKUP_DIR"
+    
+    # Remove existing directory contents but keep the directory
+    echo -e "\033[1;34mClearing existing directory for fresh installation...\033[0m"
+    rm -rf "$APP_DIR"/*
+    
+    # Clone repository into the now-empty directory
+    echo -e "\033[1;34mCloning repository into existing directory...\033[0m"
+    git clone $GIT_REPO $APP_DIR.tmp
+    mv $APP_DIR.tmp/* $APP_DIR/
+    mv $APP_DIR.tmp/.* $APP_DIR/ 2>/dev/null || true  # Move hidden files too
+    rm -rf $APP_DIR.tmp
 else
-    # Create app directory and logs
-    mkdir -p $APP_DIR/logs
+    # Create app directory
+    mkdir -p $APP_DIR
     
     # Clone repository
     echo -e "\033[1;34mCloning repository...\033[0m"
     git clone $GIT_REPO $APP_DIR
 fi
+
+# Create logs directory if it doesn't exist
+mkdir -p $APP_DIR/logs
 
 # Set proper permissions
 chown -R $APP_USER:$APP_USER $APP_DIR
@@ -167,7 +156,7 @@ fi
 
 # Run database setup
 echo -e "\033[1;34mSetting up database...\033[0m"
-node setup.js
+node setup.js || echo -e "\033[1;33mWarning: Database setup may have failed. Check logs for details.\033[0m"
 
 # Configure Nginx
 echo -e "\033[1;34mConfiguring Nginx...\033[0m"
